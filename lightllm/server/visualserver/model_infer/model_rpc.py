@@ -127,6 +127,8 @@ class VisualModelRpcClient:
             return
 
     async def encode(self, uuids):
+        print("0")
+        print(self.model.encode)
         ans = self._encode(uuids)
         if self.use_rpc:
             return await ans

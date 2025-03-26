@@ -227,7 +227,10 @@ class RouterManager:
     ):
         counter_count = 0
         while True:
-            await self._step()
+            if self.args.is_embedding:
+                await self._step_embedding()
+            else:
+                await self._step()
             counter_count += 1
             if self.running_batch is not None:
                 if counter_count % 50 == 0:
@@ -345,6 +348,30 @@ class RouterManager:
             self.has_wait_tokens = 0
             return
         return
+
+    async def _step_embedding(self):
+        if self.running_batch is None:
+            new_batch = await self.get_schedule_result(self.running_batch)
+            if new_batch is not None:
+                self.stats_tool.count_prompt_tokens(new_batch)
+                self.running_batch = new_batch
+                await self._prefill_batch(self.running_batch)
+                self._filter_runing_batch()
+                self.has_wait_tokens = self.max_wait_tokens
+
+            return
+
+        if self.has_wait_tokens >= self.max_total_token_num or self.schedule_task is not None:
+            new_mini_batch = await self.get_schedule_result(self.running_batch)
+            self.has_wait_tokens = 0
+            if new_mini_batch is not None:
+                self.stats_tool.count_prompt_tokens(new_batch)
+                self.has_wait_tokens = self.max_wait_tokens
+                await self._prefill_batch(new_mini_batch)
+                if not new_mini_batch.is_clear():
+                    self.running_batch.merge(new_mini_batch) 
+
+                return
 
     async def _prefill_batch(self, batch: Batch):
         start_time = time.time()

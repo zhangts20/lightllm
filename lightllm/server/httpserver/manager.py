@@ -46,6 +46,7 @@ class HttpServerManager:
         visual_port,
         metric_port,
         enable_multimodal,
+        is_embedding,
     ):
         self.args = args
         context = zmq.asyncio.Context(2)
@@ -76,7 +77,8 @@ class HttpServerManager:
                 )
 
         self.enable_multimodal = enable_multimodal
-        if self.enable_multimodal:
+        self.is_embedding = is_embedding
+        if self.enable_multimodal or self.is_embedding:
             self.cache_client = rpyc.connect("localhost", cache_port)
             self.send_to_visual = context.socket(zmq.PUSH)
             self.send_to_visual.connect(f"{args.zmq_mode}127.0.0.1:{visual_port}")
@@ -278,6 +280,58 @@ class HttpServerManager:
             await self.abort(group_request_id)
             raise e
         return
+
+    async def generate_embedding(
+        self, 
+        prompt: str, 
+        multimodal_params: MultimodalParams, 
+        request: Request,
+    ):
+        try:
+            start_time = time.time()
+
+            prompt_ids = await self._encode(
+                prompt, multimodal_params, add_special_tokens=False)
+            # Allocate
+            allocated_req_index = await self.shm_req_manager.async_alloc_req_index()
+            while allocated_req_index is None:
+                await asyncio.sleep(0.1)
+                allocated_req_index = await self.shm_req_manager.async_alloc_req_index()
+
+            sampling_params = SamplingParams()
+            group_request_id = self.alloc_req_id(sampling_params)
+
+            req_obj = await self.shm_req_manager.async_get_req_obj_by_index(allocated_req_index)
+            req_obj.init(
+                group_request_id,
+                prompt_ids,
+                sampling_params,
+                self.tokenizer,
+                chunked_prefill_size=self.args.chunked_prefill_size,
+            )
+
+            req_status = ReqStatus(group_request_id, multimodal_params, [req_obj], start_time)
+            self.req_id_to_out_inf[group_request_id] = req_status
+
+            await self.transfer_to_next_module_or_node(
+                prompt, sampling_params, multimodal_params, req_status.group_req_objs
+            )
+
+            results_generator = self._wait_to_token_package(
+                start_time,
+                prompt_ids,
+                group_request_id,
+                sampling_params,
+                req_status,
+                request,
+            )
+            async for sub_req_id, request_output, metadata, finish_status in results_generator:
+                yield sub_req_id, request_output, metadata, finish_status
+        except Exception as e:
+            logger.error(f"group_request_id: {group_request_id} has exception {str(e)}")
+            await self.abort(group_request_id)
+            raise e
+
 
     async def _log_req_header(self, request_headers, group_request_id: int):
 

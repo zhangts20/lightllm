@@ -29,7 +29,7 @@ from lightllm.models.phi3.model import Phi3TpPartModel
 from lightllm.models.deepseek2.model import Deepseek2TpPartModel
 from lightllm.models.internvl.model import InternVLLlamaTpPartModel, InternVLPhi3TpPartModel, InternVLQwen2TpPartModel
 from lightllm.models.internvl.model import InternVLInternlm2TpPartModel
-from lightllm.models.qwen2_vl.model import Qwen2VLTpPartModel
+from lightllm.models.qwen2_vl.model import Qwen2VLTpPartModel, Qwen2VLEmbeddingTpPartModel
 from lightllm.models.qwen2_reward.model import Qwen2RewardTpPartModel
 from lightllm.utils.infer_utils import set_random_seed
 from lightllm.utils.infer_utils import calculate_time, mark_start, mark_end
@@ -60,6 +60,7 @@ class ModeBackend:
         # 模式参数到模型的初始化过程中进行控制
         self.run_mode = "normal" if self.args is None else self.args.run_mode
         self.is_multimodal = False
+        self.is_embedding = self.args.is_embedding
         self.nnodes = self.args.nnodes
         self.node_rank = self.args.node_rank
         self.tp_rank = kvargs["rank_id"]
@@ -178,7 +179,11 @@ class ModeBackend:
                 else:
                     self.model = Qwen2TpPartModel(model_kvargs)
             elif self.model_type == "qwen2_vl":
-                self.model = Qwen2VLTpPartModel(model_kvargs)
+                # gme
+                if self.is_embedding:
+                    self.model = Qwen2VLEmbeddingTpPartModel(model_kvargs)
+                else:
+                    self.model = Qwen2VLTpPartModel(model_kvargs)
                 self.is_multimodal = True
             elif self.model_type == "gemma":
                 self.model = Gemma_2bTpPartModel(model_kvargs)

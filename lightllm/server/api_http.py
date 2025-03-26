@@ -22,7 +22,7 @@ import time
 import uvloop
 import os
 import pickle
-from .build_prompt import build_prompt, init_tokenizer
+from .build_prompt import build_prompt, build_embedding_prompt, init_tokenizer
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 import ujson as json
@@ -99,6 +99,7 @@ class G_Objs:
                 detokenization_pub_port=args.detokenization_pub_port,
                 visual_port=args.visual_port,
                 enable_multimodal=args.enable_multimodal,
+                is_embedding=args.is_embedding,
                 metric_port=args.metric_port,
             )
             dp_size_in_node = max(1, args.dp // args.nnodes)  # 兼容多机纯tp的运行模式，这时候 1 // 2 == 0, 需要兼容
@@ -338,6 +339,47 @@ async def metrics() -> Response:
     data = await g_objs.metric_client.generate_latest()
     response = Response(data)
     response.mimetype = "text/plain"
+    return response
+
+# API Reference: https://platform.openai.com/docs/api-reference/embeddings 
+@app.post("/v1/embeddings")
+async def v1_embeddings(request: Request) -> Response:
+    request_dict = await request.json()
+
+    input = request_dict.get('input')
+    if not isinstance(input, list):
+        return create_error_response(
+            HTTPStatus.BAD_REQUEST, 
+            f'The embedding of input must be a list, got {type(input)}')
+
+    prompt = await build_embedding_prompt(input)
+
+    sampling_params_dict = {
+        "max_new_tokens": 1,
+    }
+    sampling_params = SamplingParams()
+    sampling_params.init(tokenizer=g_objs.httpserver_manager.tokenizer, **sampling_params_dict)
+    multimodal_params = MultimodalParams(images=[])
+
+    results_generator = g_objs.httpserver_manager.generate_embedding(
+        prompt, multimodal_params, request=request
+    )
+
+    final_output_dict = collections.defaultdict(list)
+    count_output_tokens_dict = collections.defaultdict(lambda: 0)
+    finish_reason_dict = {}
+    prompt_tokens_dict = {}
+    completion_tokens = 0
+    async for sub_req_id, request_output, metadata, finish_status in results_generator:
+        from .req_id_generator import convert_sub_id_to_group_id
+
+        group_request_id = convert_sub_id_to_group_id(sub_req_id)
+        count_output_tokens_dict[sub_req_id] += 1
+        final_output_dict[sub_req_id].append(request_output)
+        if finish_status.is_finished():
+            finish_reason_dict[sub_req_id] = finish_status.get_finish_reason()
+            prompt_tokens_dict[sub_req_id] = metadata["prompt_tokens"]
+
     return response
 
 

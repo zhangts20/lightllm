@@ -229,12 +229,18 @@ def normal_or_p_d_start(args):
     )
 
     process_manager.start_submodule_processes(
-        start_funcs=[start_router_process, start_detokenization_process],
+        start_funcs=[start_router_process],
         start_args=[
             (args, router_port, detokenization_port, metric_port),
-            (args, detokenization_port, detokenization_pub_port),
         ],
     )
+    if not args.is_embedding:
+        process_manager.start_submodule_processes(
+            start_funcs=[
+                start_detokenization_process,
+            ],
+            start_args=[(args, detokenization_port, detokenization_pub_port)],
+        ) 
 
     # 启动 gunicorn
     command = [

@@ -18,3 +18,10 @@ async def build_prompt(request) -> str:
         kwargs["role_setting"] = request.role_settings
     input_str = tokenizer.apply_chat_template(**kwargs, tokenize=False, add_generation_prompt=True)
     return input_str
+
+
+async def build_embedding_prompt(input: list) -> str:
+    global tokenizer
+    input_str = tokenizer.apply_chat_template(input, tokenize=False, add_generation_prompt=True) 
+
+    return input_str

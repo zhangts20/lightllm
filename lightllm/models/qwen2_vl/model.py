@@ -14,7 +14,9 @@ from lightllm.common.build_utils import repair_config
 
 # from lightllm.models.qwen2_vl.vision_process import Qwen2VLImageProcessor
 import torch
+import torch.nn as nn
 from PIL import Image
+from enum import IntEnum
 from .vision_process import smart_resize
 from lightllm.models.qwen2.layer_weights import transformer_layer_weight, pre_and_post_layer_weight
 from lightllm.models.qwen2.model import Qwen2TpPartModel
@@ -102,3 +104,41 @@ class Qwen2VLTpPartModel(Qwen2TpPartModel):
         if self.finetune_config:
             self.config["vocab_size"] = self.finetune_config.vocab_size
         return
+
+
+class PoolingType(IntEnum):
+    LAST = 0
+
+
+class Qwen2VLEmbeddingPostLayerInfer(object):
+
+    def __init__(self, network_config, mode):
+        pass
+
+    def token_forward(self, input_embdings: torch.Tensor, infer_state, layer_weight) -> None:
+        pooling_type = PoolingType.LAST
+        normalize = True
+
+        b_seq_len_numpy = (infer_state.b_seq_len - infer_state.b_ready_cache_len).detach().cpu().numpy()
+        print(b_seq_len_numpy)
+        print(infer_state.b_seq_len)
+        seq_lengths = torch.tensor([infer_state.b_seq_len.shape[0]])
+        if pooling_type == PoolingType.LAST:
+            last_token_indices = torch.cumsum(seq_lengths, dim=0) - 1
+            pooled_data = input_embdings[last_token_indices]
+        else:
+            raise ValueError(f"Unsupported pooling type {pooling_type}")
+
+        if normalize:
+            pooled_data = nn.functional.normalize(pooled_data, p=2, dim=1)
+
+        return pooled_data
+
+
+class Qwen2VLEmbeddingTpPartModel(Qwen2VLTpPartModel):
+
+    # infer
+    post_layer_infer_class = Qwen2VLEmbeddingPostLayerInfer
+
+    def __init__(self, kvargs: dict):
+        super().__init__(kvargs)

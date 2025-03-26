@@ -21,6 +21,19 @@ class ContinuesBatchBackend(ModeBackend):
         kwargs, run_reqs = prepare_prefill_inputs(req_ids, self.is_multimodal)
         logits = self.model.forward(**kwargs)
 
+        if self.args.is_embedding:
+            finished_req_ids = []
+            for req_obj in run_reqs:
+                req_obj: InferReq = req_obj
+                req_obj.cur_kv_len = req_obj.get_cur_total_len()
+
+                req_obj.cur_output_len += 1
+                finished_req_ids.append(req_obj.shm_req.request_id)
+
+            g_infer_context.filter(finished_req_ids)
+
+            return
+
         next_token_ids, next_token_probs = sample(logits, run_reqs, self.eos_id)
         next_token_ids = next_token_ids.detach().cpu().numpy()
         next_token_logprobs = torch.log(next_token_probs).detach().cpu().numpy()

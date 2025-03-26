@@ -295,4 +295,10 @@ def make_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="whether to load static quantized weights. Currently, only vllm-w8a8 is supported.",
     )
+    parser.add_argument(
+        "--is_embedding",
+        action="store_true",
+        help="Whether the input model is an embedding-type model."
+    )
+
     return parser
